@@ -5,6 +5,8 @@
 #include <sstream>
 #include <cstring>
 #include <stdexcept>
+#include <sstream>
+#include <set>
 #include <WinSock2.h>
 #include <WS2tcpip.h>
 #pragma comment(lib, "ws2_32.lib")
@@ -64,8 +66,9 @@ public:
         }
 
 
-        // Create a buffer for receiving data from clients
-        char buffer[m_buffer_size];
+        // Create a buffers for receiving data from client in chunks
+//        std::string buffer;
+        char tempBuffer[m_buffer_size];
 
         // Create a vector to store clients sockets
         std::vector<SOCKET> clientSockets;
@@ -137,19 +140,23 @@ public:
                         reinterpret_cast<char*>(&keepAliveTime),
                         sizeof(keepAliveTime)) != 0) {
                     std::cerr << "Failed to set keep-alive time: " << WSAGetLastError() << "\n";
-                    throw std::runtime_error("");
+                    return;
                 }
 
                 if (setsockopt(clientSocket, IPPROTO_TCP, TCP_KEEPINTVL,
                         reinterpret_cast<char*>(&keepAliveInterval),
                         sizeof(keepAliveInterval)) != 0) {
                     std::cerr << "Failed to set keep-alive interval time: " << WSAGetLastError() << "\n";
-                    throw std::runtime_error("");
+                    return;
                 }
 
             } else if (networkEvents.lNetworkEvents & FD_READ) {
                 int clientSocket = clientSockets[eventIndex];
-                int bytesReceived = recv(clientSocket, buffer, sizeof(buffer), 0);
+                size_t transmittedSize{};
+
+                // Read data from client in chunks
+                int bytesReceived = recv(clientSocket, reinterpret_cast<char*>(&transmittedSize),
+                        sizeof(transmittedSize), 0);
                 if (bytesReceived == SOCKET_ERROR) {
                     std::cerr << "Failed to receive data from client: " << WSAGetLastError() << '\n';
                     throw std::runtime_error("");
@@ -159,8 +166,34 @@ public:
                     WSACloseEvent(events[eventIndex]);
                     clientSockets.erase(clientSockets.begin() + eventIndex);
                 } else {
-                    // Send data to the display server
-                    std::cout << "Received data from client: " << buffer << "\n";
+                    struct ClientData receivedData;
+                    size_t totalBytesReceived = 0;
+                    receivedData.messageSize = ntohl(transmittedSize);
+
+                    do {
+                        bytesReceived = recv(clientSocket, tempBuffer, sizeof(tempBuffer), 0);
+                        if (bytesReceived > 0) {
+                            receivedData.buffer.append(tempBuffer, bytesReceived);
+                            totalBytesReceived += bytesReceived;
+                        }
+
+                    } while (bytesReceived > 0);
+
+                    bool successfullyTransmitted = false;
+                    if (totalBytesReceived == receivedData.messageSize) {
+                        successfullyTransmitted = true;
+                    }
+
+                    if (send(clientSocket, reinterpret_cast<char*>(&successfullyTransmitted),
+                            sizeof(successfullyTransmitted), 0) < 0) {
+                        std::cerr << "Failed to send success message to client: " << WSAGetLastError() << "\n";
+                    }
+
+                    // Process data
+                    std::string processedData = removeDuplicates(receivedData.buffer);
+
+                    // TODO: Send data to the display server
+                    std::cout << "Received data from client: " << receivedData.buffer << "\n";
                 }
 
             } else if (networkEvents.lNetworkEvents & FD_CLOSE) {
@@ -183,8 +216,31 @@ private:
     int m_resultDisplayPort;
     WSADATA m_wsaData;
     SOCKET m_listenSocket;
-    static constexpr int m_buffer_size = 1024;
-    static constexpr int m_max_events = 64;
+    static constexpr int m_buffer_size = 64;
+
+    struct ClientData{
+        size_t messageSize{};
+        std::string buffer;
+    };
+
+    static std::string removeDuplicates(const std::string& text) {
+            std::string input = "this is a test string string to test this";
+            std::string output;
+            std::istringstream iss(text);
+            std::set<std::string> words;
+
+            // tokenize the input text
+            for (std::string word; iss >> word; ) {
+                if (words.find(word) == words.end()) {
+                    output += word + " ";
+                    words.insert(word);
+                }
+            }
+
+            // remove  trailing space
+            output.pop_back();
+            return output;
+    }
 
   /*  void processClientData(SOCKET clientSocket) {
         // Receive data from client
