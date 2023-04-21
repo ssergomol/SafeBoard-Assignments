@@ -9,24 +9,25 @@
 #include <set>
 #include <WinSock2.h>
 #include <WS2tcpip.h>
+#include <Windows.h>
 #pragma comment(lib, "ws2_32.lib")
+#include "processing_server.hpp"
 
 
-class DataProcessingServer {
-public:
-    DataProcessingServer(std::string host, int port, std::string resultDisplayHost, int resultDisplayPort)
-            : m_host(std::move(host)), m_port(port), m_resultDisplayHost(std::move(resultDisplayHost)),
+    DataProcessingServer::DataProcessingServer(std::string host, int port, std::string resultDisplayHost, int resultDisplayPort)
+            : m_host(host), m_port(port), m_resultDisplayHost(resultDisplayHost),
               m_resultDisplayPort(resultDisplayPort) {
-
         // Initialize Winsock
         if (WSAStartup(MAKEWORD(2, 2), &m_wsaData) != 0) {
             std::cerr << "Failed to initialize Winsock.\n";
+            throw std::runtime_error("Failed to initialize Winsock");
         }
 
         // Create listening socket
         m_listenSocket = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
         if (m_listenSocket == INVALID_SOCKET) {
             std::cerr << "Failed to create socket.\n";
+            throw std::runtime_error("Failed to create sockett");
         }
 
         // Bind socket to address
@@ -36,37 +37,38 @@ public:
         addr.sin_port = htons(m_port);
         if (bind(m_listenSocket, reinterpret_cast<SOCKADDR *>(&addr), sizeof(addr)) == SOCKET_ERROR) {
             std::cerr << "Failed to bind socket to address.\n";
+            throw std::runtime_error("Failed to bind socket to address.");
         }
 
         // Connect to display server
         connectDisplayServer();
     }
 
-    ~DataProcessingServer() {
+    DataProcessingServer::~DataProcessingServer() {
         closesocket(m_listenSocket);
         WSACleanup();
     }
 
-    void start() {
+    void DataProcessingServer::start() {
         std::cout << "Waiting for client connections...\n";
 
         // Listen for incoming connections
         if (listen(m_listenSocket, SOMAXCONN) == SOCKET_ERROR) {
             std::cerr << "Failed to listen for incoming connections: " << WSAGetLastError() << "\n";
-            throw std::runtime_error("");
+            throw std::runtime_error("Failed to listen for incoming connections: ");
         }
 
         // Create an event object for the listening socket
         WSAEVENT listenEvent = WSACreateEvent();
         if (listenEvent == WSA_INVALID_EVENT) {
             std::cerr << "Failed to create event object: " << WSAGetLastError() << '\n';
-            throw std::runtime_error("");
+            throw std::runtime_error("Failed to create event object: ");
         }
 
         // Associate the event object with the listening socket
         if (WSAEventSelect(m_listenSocket, listenEvent, FD_ACCEPT) == SOCKET_ERROR) {
             std::cerr << "Failed to associate event object with the listening socket: " << WSAGetLastError() << '\n';
-            throw std::runtime_error("");
+            throw std::runtime_error("Failed to associate event object with the listening socket: ");
         }
 
 
@@ -86,25 +88,26 @@ public:
             events.resize(clientSockets.size());
             events[0] = listenEvent;
 
-            std::cout << "Number of sockets: " << clientSockets.size() << "\n";
+            std::cout << "Number of connections: " << clientSockets.size() - 1 << "\n";
 
             // Add client sockets to the array of event objects
             for (size_t i = 1; i < clientSockets.size(); ++i) {
                 events[i] = WSACreateEvent();
                 if (events[i] == WSA_INVALID_EVENT) {
-                    throw std::runtime_error("Failed to create event object.");
+                    std::cerr << "Failed to create event object: " << WSAGetLastError() << '\n';
+                    throw std::runtime_error("Failed to create event object");
+
                 }
                 if (WSAEventSelect(clientSockets[i], events[i], FD_READ | FD_CLOSE) == SOCKET_ERROR) {
-                    throw std::runtime_error("Failed to associate event object with client socket.");
+                    std::cerr << "Failed to associate event object with client socket" << WSAGetLastError() << '\n';
+                    throw std::runtime_error("Failed to associate event object with client socket");
                 }
             }
 
 
             // Wait for events to occur
-            std::cout << "Start waiting for events\n";
             DWORD eventCount = WSAWaitForMultipleEvents(clientSockets.size(), events.data(),
                     FALSE, WSA_INFINITE, FALSE);
-            std::cout << "End waiting for events\n";
             int eventIndex = eventCount - WSA_WAIT_EVENT_0;
 
             WSANETWORKEVENTS networkEvents;
@@ -112,6 +115,7 @@ public:
 
             // Process events
             if (eventCount == WSA_WAIT_FAILED) {
+                std::cerr << "WSAWaitForMultipleEvents failed:" << WSAGetLastError() << '\n';
                 throw std::runtime_error("WSAWaitForMultipleEvents failed.");
 
             } else if (eventIndex == 0 && networkEvents.lNetworkEvents & FD_ACCEPT) {
@@ -136,7 +140,6 @@ public:
                         reinterpret_cast<char*>(&keepAlive),
                         sizeof(keepAlive)) != 0) {
                     std::cerr << "Failed to set keep-alive option: " << WSAGetLastError() << "\n";
-                    throw std::runtime_error("");
                 }
 
                 if (setsockopt(clientSocket, IPPROTO_TCP, TCP_KEEPIDLE,
@@ -162,7 +165,7 @@ public:
                         sizeof(transmittedSize), 0);
                 if (bytesReceived == SOCKET_ERROR) {
                     std::cerr << "Failed to receive data from client: " << WSAGetLastError() << '\n';
-                    throw std::runtime_error("");
+                    throw std::runtime_error("Failed to receive data from client: ");
                 } else if (bytesReceived == 0) {
                     std::cout << "Client disconnected.\n";
                     closesocket(clientSocket);
@@ -172,17 +175,35 @@ public:
                     struct ClientData receivedData;
                     size_t totalBytesReceived = 0;
                     receivedData.messageSize = ntohl(transmittedSize);
+                    bool waitForClient = false;
 
                     do {
+                        waitForClient = false;
                         bytesReceived = recv(clientSocket, tempBuffer, sizeof(tempBuffer), 0);
-                        if (bytesReceived > 0) {
+
+                        if (bytesReceived == -1) {
+                            if (WSAGetLastError() == WSAEWOULDBLOCK) {
+                                if (totalBytesReceived == 0) {
+                                    waitForClient = true;
+                                    continue;
+                                } else {
+                                    waitForClient = false;
+                                    break;
+                                }
+                            }
+                            std::cerr << "Failed to read data from client: " << WSAGetLastError() << '\n';
+                            break;
+                        }
+                        else if (bytesReceived > 0) {
                             receivedData.buffer.append(tempBuffer, bytesReceived);
                             totalBytesReceived += bytesReceived;
                         }
 
-                    } while (bytesReceived > 0);
+                    } while (bytesReceived > 0 || waitForClient);
 
                     bool successfullyTransmitted = false;
+                    std::cout << totalBytesReceived << std::endl;
+                    std::cout << receivedData.messageSize << std::endl;
                     if (totalBytesReceived == receivedData.messageSize) {
                         successfullyTransmitted = true;
                     }
@@ -197,9 +218,10 @@ public:
 
                     // Send data to the display server
                     if (send(m_displayServerSocket, processedData.c_str(), processedData.size(), 0) < 0) {
-                        std::cerr << "Failed to data to display server: " << WSAGetLastError() << "\n";
+                        std::cerr << "Failed to send data to display server: " << WSAGetLastError() << "\n";
+                    } else {
+                        std::cout << "Data successfully sent to the display server\n";
                     }
-//                    std::cout << "Received data from client: " << receivedData.buffer << "\n";
                 }
 
             } else if (networkEvents.lNetworkEvents & FD_CLOSE) {
@@ -215,23 +237,7 @@ public:
     }
 
 
-private:
-    std::string m_host;
-    int m_port;
-    std::string m_resultDisplayHost;
-    int m_resultDisplayPort;
-    WSADATA m_wsaData;
-    SOCKET m_listenSocket;
-    SOCKET m_displayServerSocket;
-    static constexpr int m_buffer_size = 64;
-
-    struct ClientData{
-        size_t messageSize{};
-        std::string buffer;
-    };
-
-    static std::string removeDuplicates(const std::string& text) {
-            std::string input = "this is a test string string to test this";
+    std::string DataProcessingServer::removeDuplicates(const std::string& text) {
             std::string output;
             std::istringstream iss(text);
             std::set<std::string> words;
@@ -249,11 +255,11 @@ private:
             return output;
     }
 
-    void connectDisplayServer() {
+    void DataProcessingServer::connectDisplayServer() {
         m_displayServerSocket = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
         if (m_displayServerSocket == INVALID_SOCKET) {
             std::cerr << "Failed to create display server socket: " << WSAGetLastError() << '\n';
-            return;
+            throw std::runtime_error("Failed to create display server socket");
         }
 
         SOCKADDR_IN serverAddr;
@@ -264,14 +270,7 @@ private:
         if (connect(m_displayServerSocket, reinterpret_cast<sockaddr*>(&serverAddr),
                 sizeof(serverAddr)) == SOCKET_ERROR) {
             std::cerr << "Failed to connect to display server: " << WSAGetLastError() << '\n';
-            return;
+            throw std::runtime_error("Failed to connect to display server");
         }
     }
-};
 
-int main() {
-    DataProcessingServer server("127.0.0.1", 8080, "127.0.0.1", 8081);
-    server.start();
-
-    return 0;
-}
