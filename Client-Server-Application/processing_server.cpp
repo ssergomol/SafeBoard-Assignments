@@ -11,6 +11,7 @@
 #include <WS2tcpip.h>
 #pragma comment(lib, "ws2_32.lib")
 
+
 class DataProcessingServer {
 public:
     DataProcessingServer(std::string host, int port, std::string resultDisplayHost, int resultDisplayPort)
@@ -36,6 +37,9 @@ public:
         if (bind(m_listenSocket, reinterpret_cast<SOCKADDR *>(&addr), sizeof(addr)) == SOCKET_ERROR) {
             std::cerr << "Failed to bind socket to address.\n";
         }
+
+        // Connect to display server
+        connectDisplayServer();
     }
 
     ~DataProcessingServer() {
@@ -66,8 +70,7 @@ public:
         }
 
 
-        // Create a buffers for receiving data from client in chunks
-//        std::string buffer;
+        // Create a buffer for receiving data from client in chunks
         char tempBuffer[m_buffer_size];
 
         // Create a vector to store clients sockets
@@ -216,6 +219,7 @@ private:
     int m_resultDisplayPort;
     WSADATA m_wsaData;
     SOCKET m_listenSocket;
+    SOCKET m_displayServerSocket;
     static constexpr int m_buffer_size = 64;
 
     struct ClientData{
@@ -242,62 +246,24 @@ private:
             return output;
     }
 
-  /*  void processClientData(SOCKET clientSocket) {
-        // Receive data from client
-        char buffer[1024];
-        int bytesReceived = recv(clientSocket, buffer, sizeof(buffer), 0);
-        if (bytesReceived == SOCKET_ERROR) {
-            throw std::runtime_error("Failed to receive data from client.");
-        }
-        std::string dataReceived(buffer, bytesReceived);
-        std::cout << "Data received from client: " << dataReceived << std::endl;
-
-        // Verify data correctness
-        if (!isDataCorrect(dataReceived)) {
-            throw std::runtime_error("Invalid data received from client.");
+    void connectDisplayServer() {
+        m_displayServerSocket = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+        if (m_displayServerSocket == INVALID_SOCKET) {
+            std::cerr << "Failed to create display server socket: " << WSAGetLastError() << '\n';
+            return;
         }
 
-        // Send confirmation to client
-        std::string confirmationMessage = "Data received in full.";
-        int bytesSent = send(clientSocket, confirmationMessage.c_str(), confirmationMessage.size() + 1, 0);
-        if (bytesSent == SOCKET_ERROR) {
-            throw std::runtime_error("Failed to send confirmation to client.");
+        SOCKADDR_IN serverAddr;
+        serverAddr.sin_family = AF_INET;
+        serverAddr.sin_addr.s_addr = inet_addr(m_resultDisplayHost.c_str());
+        serverAddr.sin_port = htons(m_resultDisplayPort);
+
+        if (connect(m_displayServerSocket, reinterpret_cast<sockaddr*>(&serverAddr),
+                sizeof(serverAddr)) == SOCKET_ERROR) {
+            std::cerr << "Failed to connect to display server: " << WSAGetLastError() << '\n';
+            return;
         }
-
-        // Convert the received data into a string of words separated by spaces.
-        std::vector<std::string> words = getWordsFromString(dataReceived);
-
-// Find and delete duplicate words in this line.
-        std::vector<std::string> uniqueWords;
-        for (const std::string &word: words) {
-            if (std::find(uniqueWords.begin(), uniqueWords.end(), word) == uniqueWords.end()) {
-                uniqueWords.push_back(word);
-            }
-        }
-
-// Convert the vector of unique words back into a string.
-        std::string result = "";
-        for (const std::string &word: uniqueWords) {
-            result += word + " ";
-        }
-
-// Send the resulting result to the result display server.
-        if (sendData(resultDisplaySocket, result) == -1) {
-            std::cerr << "Error sending data to the result display server." << std::endl;
-            closesocket(resultDisplaySocket);
-            WSACleanup();
-            return 1;
-        }
-
-// Close the connection to the result display server.
-        closesocket(resultDisplaySocket);
-
-// Close the connection to the client application.
-        closesocket(clientSocket);
-
-// Cleanup Winsock.
-        WSACleanup();
-    }*/
+    }
 };
 
 int main() {
@@ -306,4 +272,3 @@ int main() {
 
     return 0;
 }
-
