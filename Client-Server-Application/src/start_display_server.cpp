@@ -1,6 +1,6 @@
 #include <iostream>
 #include <string>
-#include "display_server.hpp"
+#include "../include/display_server.hpp"
 
 int main(int argc, char* argv[]) {
     // Default values

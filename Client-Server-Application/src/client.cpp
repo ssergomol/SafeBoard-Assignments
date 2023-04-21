@@ -1,7 +1,7 @@
 #include <iostream>
 #include <string>
 #include <WinSock2.h>
-#include "client.hpp"
+#include "../include/client.hpp"
 #pragma comment(lib, "ws2_32.lib")
 
 Client::Client(std::string address, int port) : m_address(address), m_port(port) {

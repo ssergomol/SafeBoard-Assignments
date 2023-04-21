@@ -1,7 +1,7 @@
 #include <iostream>
 #include <string>
 #include <WS2tcpip.h>
-#include "display_server.hpp"
+#include "../include/display_server.hpp"
 #pragma comment(lib, "ws2_32.lib")
 
 ResultDisplayServer::ResultDisplayServer(std::string ipAddr, int port)

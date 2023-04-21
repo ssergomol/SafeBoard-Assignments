@@ -1,6 +1,6 @@
 #include <iostream>
 #include <string>
-#include "processing_server.hpp"
+#include "../include/processing_server.hpp"
 
 int main(int argc, char* argv[]) {
     // Default values

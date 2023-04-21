@@ -11,7 +11,7 @@
 #include <WS2tcpip.h>
 #include <Windows.h>
 #pragma comment(lib, "ws2_32.lib")
-#include "processing_server.hpp"
+#include "../include/processing_server.hpp"
 
 
     DataProcessingServer::DataProcessingServer(std::string host, int port, std::string resultDisplayHost, int resultDisplayPort)
