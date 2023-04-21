@@ -195,8 +195,11 @@ public:
                     // Process data
                     std::string processedData = removeDuplicates(receivedData.buffer);
 
-                    // TODO: Send data to the display server
-                    std::cout << "Received data from client: " << receivedData.buffer << "\n";
+                    // Send data to the display server
+                    if (send(m_displayServerSocket, processedData.c_str(), processedData.size(), 0) < 0) {
+                        std::cerr << "Failed to data to display server: " << WSAGetLastError() << "\n";
+                    }
+//                    std::cout << "Received data from client: " << receivedData.buffer << "\n";
                 }
 
             } else if (networkEvents.lNetworkEvents & FD_CLOSE) {
