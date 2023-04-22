@@ -1,9 +1,8 @@
 #include <iostream>
 #include <vector>
+#include <cstdio>
 #include <fstream>
-#include <future>
 #include <thread>
-#include <condition_variable>
 #include <openssl/evp.h>
 #include <openssl/md5.h>
 #include "thread_pool.cpp"
@@ -22,7 +21,6 @@ bool stopRequested = false;
 bool matchFound = false;
 std::string matchingString;
 std::condition_variable cv;
-std::condition_variable readCV;
 size_t currentLength{1};
 
 // MD5 calculation function
@@ -57,7 +55,7 @@ void checkAllCombinations(int length) {
             break;
         }
 
-        // print current string
+        // create current string
         for (int i = 0; i < length; i++) {
             originalString += charset[indices[i]];
         }
@@ -83,8 +81,6 @@ void checkAllCombinations(int length) {
         }
         indices[i]++;
     }
-    std::cout << "almost returned " << length << '\n';
-
     finishedTasks.fetch_add(1);
     cv.notify_one();
 }
@@ -95,7 +91,6 @@ void readWorker() {
     stopRequested = true;
 }
 
-// Main function
 int main(int argc, char *argv[]) {
     // Parse command-line arguments
     if (argc == 2 && std::string(argv[1]) == "resume") {
@@ -111,11 +106,9 @@ int main(int argc, char *argv[]) {
         std::ifstream argumentFile("arguments.txt");
         argumentFile >> md5Hash >> configFile;
         argumentFile.close();
+        std::remove("arguments.txt");
+        std::remove("state.txt");
 
-        for (auto item : states) {
-            std::cout << item << " ";
-        }
-        std::cout << md5Hash << std::endl << configFile << std::endl;
         currentLength = states[states.size() - 1];
 
         std::ifstream ifs(configFile);
@@ -134,20 +127,13 @@ int main(int argc, char *argv[]) {
         states.clear();
         std::thread readThread(readWorker);
 
-        size_t counter = 0;
         for (; !matchFound && !stopRequested; currentLength++) {
             pool.add_task(checkAllCombinations, currentLength);
-            std::cout << "add\n";
             if (currentLength >= std::thread::hardware_concurrency()) {
                 std::unique_lock<std::mutex> lock(finishedMutex);
-                std::cout << "Go to sleep\n";
                 cv.wait(lock);
-//                cv.wait(lock, [&](){return currentLength - finishedTasks.load()
-//                <= std::thread::hardware_concurrency() + 1;});
-//                counter = 0;
             }
         }
-        std::cout << "wake up\n";
 
         if (stopRequested) {
             pool.wait_all();
@@ -158,19 +144,14 @@ int main(int argc, char *argv[]) {
             std::ofstream argFile("arguments.txt", std::ios::out | std::ios::binary);
 
             // Write the strings to the file, separated by a space
-            argFile << md5Hash << " " << configFile;
             argFile.close();
-
             readThread.join();
 
             return 0;
         } else if (matchFound) {
             std::cout << matchingString << std::endl;
         }
-
-        std::cout << "Current length: " << currentLength << std::endl;
         readThread.detach();
-        std::cout << "readthread joined\n";
 
     } else if (argc == 3) {
         md5Hash = std::string(argv[1]);
@@ -186,16 +167,12 @@ int main(int argc, char *argv[]) {
         ThreadPool pool(std::thread::hardware_concurrency());
         std::thread readThread(readWorker);
 
-        size_t counter = 0;
         for (; !matchFound && !stopRequested; currentLength++) {
             pool.add_task(checkAllCombinations, currentLength);
 
             if (currentLength >= std::thread::hardware_concurrency()) {
                 std::unique_lock<std::mutex> lock(finishedMutex);
                 cv.wait(lock);
-//                cv.wait(lock, [&](){return currentLength - finishedTasks.load()
-//                <= std::thread::hardware_concurrency() + 1;});
-//                counter = 0;
             }
         }
 
@@ -206,9 +183,6 @@ int main(int argc, char *argv[]) {
             outfile.write(reinterpret_cast<char *>(states.data()), states.size() * sizeof(int));
             outfile.close();
             std::ofstream argFile("arguments.txt", std::ios::out | std::ios::binary);
-
-            // Write the strings to the file, separated by a space
-            argFile << md5Hash << " " << configFile;
             argFile.close();
 
             readThread.join();
@@ -216,10 +190,7 @@ int main(int argc, char *argv[]) {
         } else if (matchFound) {
             std::cout << matchingString << std::endl;
         }
-
-        std::cout << "Current length: " << currentLength << std::endl;
         readThread.detach();
-        std::cout << "readthread joined\n";
 
     } else {
         std::cout << "Usage: inverse_md5_calc.exe <md5 hash> <config file>" << std::endl;
