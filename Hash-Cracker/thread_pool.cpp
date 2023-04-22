@@ -8,16 +8,14 @@
 #include <future>
 #include <unordered_set>
 #include <atomic>
-
 #include <vector>
 #include <chrono>
 
-// C++ 14
 class ThreadPool {
 public:
-    ThreadPool(uint32_t num_threads) {
+    ThreadPool(size_t num_threads) {
         threads.reserve(num_threads);
-        for (uint32_t i = 0; i < num_threads; ++i) {
+        for (size_t i = 0; i < num_threads; ++i) {
             threads.emplace_back(&ThreadPool::run, this);
         }
     }
@@ -32,13 +30,6 @@ public:
         return task_idx;
     }
 
-    void wait(int64_t task_id) {
-        std::unique_lock<std::mutex> lock(completed_task_ids_mtx);
-        completed_task_ids_cv.wait(lock, [this, task_id]()->bool {
-            return completed_task_ids.find(task_id) != completed_task_ids.end();
-        });
-    }
-
     void wait_all() {
         std::unique_lock<std::mutex> lock(q_mtx);
         completed_task_ids_cv.wait(lock, [this]()->bool {
@@ -47,24 +38,15 @@ public:
         });
     }
 
-    bool calculated(int64_t task_id) {
-        std::lock_guard<std::mutex> lock(completed_task_ids_mtx);
-        if (completed_task_ids.find(task_id) != completed_task_ids.end()) {
-            return true;
-        }
-        return false;
-    }
-
     ~ThreadPool() {
         quite = true;
-        for (uint32_t i = 0; i < threads.size(); ++i) {
+        for (size_t i = 0; i < threads.size(); ++i) {
             q_cv.notify_all();
             threads[i].join();
         }
     }
 
 private:
-
     void run() {
         while (!quite) {
             std::unique_lock<std::mutex> lock(q_mtx);
@@ -88,14 +70,10 @@ private:
     std::queue<std::pair<std::future<void>, int64_t>> q; // очередь задач - хранит функцию(задачу), которую нужно исполнить и номер данной задачи
     std::mutex q_mtx;
     std::condition_variable q_cv;
-
     std::unordered_set<int64_t> completed_task_ids;      // помещаем в данный контейнер исполненные задачи
     std::condition_variable completed_task_ids_cv;
     std::mutex completed_task_ids_mtx;
-
     std::vector<std::thread> threads;
-
-
     std::atomic<bool> quite{ false };                    // флаг завершения работы thread_pool
     std::atomic<int64_t> last_idx = 0;                   // переменная хранящая id который будет выдан следующей задаче
 };
