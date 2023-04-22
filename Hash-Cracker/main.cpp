@@ -87,6 +87,7 @@ public:
 
 private:
 
+    // function to find all string combinations of given length
     void checkAllCombinations(int length) {
         std::this_thread::sleep_for(std::chrono::seconds(5));
         std::string originalString;
@@ -135,7 +136,7 @@ private:
         stopRequested = true;
     }
 
-    // MD% hash function
+    // MD5 hash function
     static std::string md5(const std::string &str) {
         unsigned char md[MD5_DIGEST_LENGTH];
         EVP_MD_CTX *mdCtx;
