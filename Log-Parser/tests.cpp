@@ -13,9 +13,11 @@ class LogParserTest : public Test {
 public:
     void SetUp() override {
         // Create test directories and log files
+        createDirectory("oneLog");
         createDirectory("logs1");
         createDirectory("logs1/subdir1");
         createDirectory("logs2");
+        createLogFile("oneLog/process1.log", logContentSimple);
         createLogFile("logs1/process1.log", logContent1);
         createLogFile("logs1/subdir1/process1.log", logContent2);
         createLogFile("logs2/process2.log", logContent3);
@@ -31,6 +33,8 @@ public:
 
 protected:
     // Define test log content
+    const string logContentSimple = "[2023-04-06T09:32:01.041][Info][process1]simple-log";
+
     const string logContent1 = "[2023-04-06T09:32:01.041][Trace][process1] log message 1\n"
                                "[2023-04-06T09:33:19.765][Info][process1] something else\n"
                                "[2023-04-06T09:35:15.123][Debug][process1] jumping lazy fox\n"
@@ -62,6 +66,14 @@ protected:
         ofstream file(path);
         file << content;
         file.close();
+    }
+
+    void assertLogCountsOneLog(const unordered_map<string, unordered_map<string, int>> &logCounts) {
+        // Check the log counts for process1
+        ASSERT_THAT(logCounts.count("process1"), Eq(1));
+        const auto &process1Counts = logCounts.at("process1");
+        EXPECT_THAT(process1Counts.count("Info"), Eq(1));
+        EXPECT_THAT(process1Counts.at("Info"), Eq(1));
     }
 
     void assertLogCounts1(const unordered_map<string, unordered_map<string, int>> &logCounts) {
@@ -96,7 +108,7 @@ protected:
 
     void assertLogCountsMixed(const unordered_map<string, unordered_map<string, int>> &logCounts) {
         // Check the log counts for mixed processes data
-        
+
         ASSERT_THAT(logCounts.count("process1"), Eq(1));
         const auto &process1Counts = logCounts.at("process1");
         EXPECT_THAT(process1Counts.count("Debug"), Eq(1));
@@ -112,17 +124,31 @@ protected:
     }
 };
 
+
+TEST_F(LogParserTest, SimpleTest) {
+    std::ifstream file("oneLog/process1.log");
+    std::string log;
+    std::getline(file, log);
+    LogParser::LogInfo data = LogParser::parseLogLine(log);
+    EXPECT_THAT(data.process, Eq("process1"));
+    EXPECT_THAT(data.level, Eq("Info"));
+}
+
+TEST_F(LogParserTest, OneLog) {
+    LogParser parser;
+    parser.processLogDirectory("oneLog");
+    assertLogCountsOneLog(parser.logCounts);
+}
+
 TEST_F(LogParserTest, Logs1) {
     LogParser parser;
     parser.processLogDirectory("logs1");
-    parser.printLogCounts();
     assertLogCounts1(parser.logCounts);
 }
 
 TEST_F(LogParserTest, Logs2) {
     LogParser parser;
     parser.processLogDirectory("logs2");
-    parser.printLogCounts();
     assertLogCounts2(parser.logCounts);
 }
 
@@ -130,14 +156,12 @@ TEST_F(LogParserTest, Logs1_And_Logs2) {
     LogParser parser;
     parser.processLogDirectory("logs1");
     parser.processLogDirectory("logs2");
-    parser.printLogCounts();
     assertLogCountsBoth(parser.logCounts);
 }
 
 TEST_F(LogParserTest, MixedLogs) {
     LogParser parser;
     parser.processLogDirectory("logs");
-    parser.printLogCounts();
     assertLogCountsMixed(parser.logCounts);
 }
 
