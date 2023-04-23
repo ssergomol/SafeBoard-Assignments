@@ -79,6 +79,7 @@ protected:
     }
 
     void assertLogCounts2(const unordered_map<string, unordered_map<string, int>> &logCounts) {
+        // Check the log counts for process2
         ASSERT_THAT(logCounts.count("process2"), Eq(1));
         const auto &process2Counts = logCounts.at("process2");
         EXPECT_THAT(process2Counts.count("Debug"), Eq(1));
@@ -88,13 +89,14 @@ protected:
     }
 
     void assertLogCountsBoth(const unordered_map<string, unordered_map<string, int>> &logCounts) {
-        // Check the log counts for process1
+        // Check the log counts for both processes
         assertLogCounts1(logCounts);
         assertLogCounts2(logCounts);
     }
 
     void assertLogCountsMixed(const unordered_map<string, unordered_map<string, int>> &logCounts) {
-
+        // Check the log counts for mixed processes data
+        
         ASSERT_THAT(logCounts.count("process1"), Eq(1));
         const auto &process1Counts = logCounts.at("process1");
         EXPECT_THAT(process1Counts.count("Debug"), Eq(1));
